@@ -110,6 +110,13 @@ private fun LibreScannerApp() {
         }
     }
 
+    /** desde el inicio siempre se arranca un documento NUEVO (el anterior queda guardado) */
+    fun startNewDocument() {
+        openDoc = null
+        pages.clear()
+        screen = Screen.Capture
+    }
+
     fun persistCurrent() {
         val doc = openDoc ?: return
         if (pages.isEmpty()) {
@@ -135,8 +142,13 @@ private fun LibreScannerApp() {
             }
             HomeScreen(
                 docsCount = docsCount,
-                onNewScan = { screen = Screen.Capture },
-                onImage = handleImage,
+                onNewScan = ::startNewDocument,
+                onImage = { bitmap ->
+                    // importar desde el inicio también arranca un documento nuevo
+                    openDoc = null
+                    pages.clear()
+                    handleImage(bitmap)
+                },
                 onDocs = { screen = Screen.Docs },
             )
         }
