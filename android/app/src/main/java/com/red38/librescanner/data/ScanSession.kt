@@ -10,6 +10,7 @@ import androidx.compose.ui.geometry.Offset
 import com.red38.librescanner.vision.DocumentFilter
 import com.red38.librescanner.vision.Pt
 import java.io.ByteArrayOutputStream
+import java.io.File
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -45,6 +46,10 @@ object ScanSession {
         }
         return BitmapFactory.decodeByteArray(data, 0, data.size, options)
     }
+
+    /** decodifica un JPEG del disco a un tamaño máximo dado (para miniaturas) */
+    fun decodeFile(path: String, maxSide: Int = 280): Bitmap? =
+        runCatching { decode(File(path).readBytes(), maxSide) }.getOrNull()
 
     /** rota el bitmap en pasos de 90° horario (steps puede ser negativo) */
     fun rotate(bitmap: Bitmap, steps: Int): Bitmap {

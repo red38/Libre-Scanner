@@ -83,7 +83,9 @@ fun EditorScreen(
     page: PageItem,
     index: Int,
     pageCount: Int,
+    docName: String? = null,
     onIndexChange: (Int) -> Unit,
+    onAddPage: () -> Unit,
     onDeletePage: () -> Unit,
     onCancel: () -> Unit,
     onDone: (List<Bitmap>) -> Unit,
@@ -141,9 +143,13 @@ fun EditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (pageCount > 1) "Editor · ${index + 1}/$pageCount" else "Editor") },
+                title = {
+                    val base = docName ?: "Editor"
+                    Text(if (pageCount > 1) "$base · ${index + 1}/$pageCount" else base)
+                },
                 navigationIcon = { TextButton(onClick = onCancel) { Text("Volver") } },
                 actions = {
+                    IconButton(onClick = onAddPage, enabled = !busy) { Text("＋") }
                     IconButton(onClick = onDeletePage, enabled = !busy) { Text("🗑") }
                 },
             )

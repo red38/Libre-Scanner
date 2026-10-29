@@ -40,7 +40,7 @@ fun ResultScreen(
     index: Int,
     onIndexChange: (Int) -> Unit,
     onNewScan: () -> Unit,
-    onNewDoc: () -> Unit,
+    onDocs: () -> Unit,
 ) {
     val context = LocalContext.current
     //bitmap actual (la sesión siempre deja al menos uno al llegar aquí)
@@ -121,12 +121,12 @@ fun ResultScreen(
             }
 
             OutlinedButton(
-                onClick = onNewDoc,
+                onClick = onDocs,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp),
             ) {
-                Text("🧹 Documento nuevo (descarta la sesión)")
+                Text("📚 Mis documentos")
             }
         }
     }

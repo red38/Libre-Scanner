@@ -53,11 +53,10 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun HomeScreen(
-    pageCount: Int,
+    docsCount: Int,
     onNewScan: () -> Unit,
     onImage: (Bitmap) -> Unit,
-    onContinue: () -> Unit,
-    onDiscard: () -> Unit,
+    onDocs: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -162,26 +161,18 @@ fun HomeScreen(
                 Text("🖼️  Importar de galería", style = MaterialTheme.typography.titleMedium)
             }
 
-            if (pageCount > 0) {
-                Spacer(Modifier.height(28.dp))
+            OutlinedButton(
+                onClick = onDocs,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+            ) {
                 Text(
-                    "Documento en curso · $pageCount ${if (pageCount == 1) "página" else "páginas"}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    if (docsCount > 0) "📚  Mis documentos ($docsCount)"
+                    else "📚  Mis documentos",
+                    style = MaterialTheme.typography.titleMedium,
                 )
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = onContinue,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Text("📂  Continuar documento", style = MaterialTheme.typography.titleMedium)
-                }
-                TextButton(onClick = onDiscard) {
-                    Text("🧹 Descartar documento")
-                }
             }
 
             Spacer(Modifier.weight(1f))
