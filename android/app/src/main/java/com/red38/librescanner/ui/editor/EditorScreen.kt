@@ -2,6 +2,7 @@ package com.red38.librescanner.ui.editor
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -11,74 +12,139 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.red38.librescanner.data.PageItem
+import com.red38.librescanner.data.ScanSession
 import com.red38.librescanner.ui.fitRect
 import com.red38.librescanner.vision.DocumentDetector
 import com.red38.librescanner.vision.DocumentFilter
 import com.red38.librescanner.vision.ImageFilters
 import com.red38.librescanner.vision.PerspectiveWarper
 import com.red38.librescanner.vision.Pt
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
+private const val VIEW_MAX_SIDE = 2000
+private const val PREVIEW_MAX_SIDE = 720
+private const val SAVE_MAX_SIDE = 2600
+
+private val OutlineBlue = Color(0xFF1F6FEB)
+private val HandleFill = Color(0xFF1F6FEB).copy(alpha = 0.92f)
+private val ShadeColor = Color.Black.copy(alpha = 0.45f)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorScreen(
-    bitmap: Bitmap,
-    initialQuad: List<Pt>?,
+    pages: List<PageItem>,
+    page: PageItem,
+    index: Int,
+    pageCount: Int,
+    onIndexChange: (Int) -> Unit,
+    onDeletePage: () -> Unit,
     onCancel: () -> Unit,
-    onDone: (Bitmap) -> Unit,
+    onDone: (List<Bitmap>) -> Unit,
 ) {
-    val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
-    val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
-    var quad by remember(bitmap) {
-        mutableStateOf(initialQuad?.let { normalize(it, bitmap) } ?: defaultQuad())
+    // bitmap de edición decodificado bajo demanda desde el JPEG de la página
+    val viewBitmap by produceState<Bitmap?>(initialValue = null, page.data) {
+        value = withContext(Dispatchers.Default) { ScanSession.decode(page.data, VIEW_MAX_SIDE) }
     }
-    var filter by remember { mutableStateOf(DocumentFilter.MAGIC) }
-    var busy by remember { mutableStateOf(false) }
-    var activeCorner by remember { mutableIntStateOf(-1) }
-    val currentQuad by rememberUpdatedState(quad)
-    val currentBitmap by rememberUpdatedState(bitmap)
+    val aspect = viewBitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: 0.75f
+
+    // fuente en baja resolución para la vista previa en vivo
+    val previewSource by produceState<Bitmap?>(initialValue = null, page.data) {
+        value = withContext(Dispatchers.Default) { ScanSession.decode(page.data, PREVIEW_MAX_SIDE) }
+    }
+
+    var preview by remember(page.data) { mutableStateOf<Bitmap?>(null) }
+    var previewBusy by remember(page.data) { mutableStateOf(false) }
+
+    // vista previa (recorte + filtro) recalculada con debounce al arrastrar o cambiar filtro
+    LaunchedEffect(page.data, page.quad, page.filter, previewSource) {
+        val source = previewSource ?: return@LaunchedEffect
+        previewBusy = true
+        delay(160) // debounce de los recalculos frenéticos durante el arrastre
+        val pixelQuad = page.quad?.let {
+            ScanSession.toPixelQuad(it, source.width, source.height)
+        }
+        val (tw, th) = PerspectiveWarper.targetSize(
+            pixelQuad, source.width, source.height, PREVIEW_MAX_SIDE,
+        )
+        val warped = PerspectiveWarper.warp(source, pixelQuad, tw, th)
+        preview = ImageFilters.apply(warped, page.filter)
+        previewBusy = false
+    }
+
+    var busyDetect by remember { mutableStateOf(false) }
+    var busyRotate by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    val busy = busyDetect || busyRotate || saving
+    var draggingCorner by remember { mutableIntStateOf(-1) }
     val scope = rememberCoroutineScope()
+
+    suspend fun rotatePage(steps: Int) {
+        busyRotate = true
+        val rotated = withContext(Dispatchers.Default) {
+            val source = ScanSession.decode(page.data, SAVE_MAX_SIDE) ?: return@withContext null
+            ScanSession.encode(ScanSession.rotate(source, steps))
+        }
+        busyRotate = false
+        if (rotated != null) {
+            page.data = rotated
+            page.quad = ScanSession.transformQuad(page.quad ?: defaultQuad(), steps)
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Ajustar documento") },
-                navigationIcon = {
-                    TextButton(onClick = onCancel) { Text("Volver") }
+                title = { Text(if (pageCount > 1) "Editor · ${index + 1}/$pageCount" else "Editor") },
+                navigationIcon = { TextButton(onClick = onCancel) { Text("Volver") } },
+                actions = {
+                    IconButton(onClick = onDeletePage, enabled = !busy) { Text("🗑") }
                 },
             )
         },
@@ -97,156 +163,289 @@ fun EditorScreen(
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
-                        .pointerInput(Unit) {
+                        .pointerInput(page.data) {
                             detectDragGestures(
                                 onDragStart = { position ->
                                     val rect = fitRect(size, aspect)
-                                    val points = currentQuad
+                                    val points = page.quad ?: defaultQuad()
                                     var best = -1
                                     var bestDistance = Float.MAX_VALUE
-                                    points.forEachIndexed { index, point ->
+                                    points.forEachIndexed { i, point ->
                                         val cx = rect.left + point.x * rect.width
                                         val cy = rect.top + point.y * rect.height
-                                        val distance = hypot(position.x - cx, position.y - cy)
-                                        if (distance < bestDistance) {
-                                            bestDistance = distance
-                                            best = index
+                                        val d = hypot(position.x - cx, position.y - cy)
+                                        if (d < bestDistance) {
+                                            bestDistance = d
+                                            best = i
                                         }
                                     }
-                                    activeCorner = if (bestDistance <= 40.dp.toPx()) best else -1
+                                    // radio de agarre generoso en píxeles de pantalla (web: ~30 CSS px)
+                                    draggingCorner = if (bestDistance <= with(density) { 44.dp.toPx() }) best else -1
                                 },
-                                onDragEnd = { activeCorner = -1 },
-                                onDragCancel = { activeCorner = -1 },
+                                onDragEnd = { draggingCorner = -1 },
+                                onDragCancel = { draggingCorner = -1 },
                                 onDrag = { change, dragAmount ->
                                     change.consume()
-                                    val index = activeCorner
+                                    val i = draggingCorner
                                     val rect = fitRect(size, aspect)
-                                    if (index in 0..3 && rect.width > 0f && rect.height > 0f) {
-                                        val points = currentQuad.toMutableList()
-                                        val point = points[index]
-                                        points[index] = Offset(
-                                            (point.x + dragAmount.x / rect.width).coerceIn(0f, 1f),
-                                            (point.y + dragAmount.y / rect.height).coerceIn(0f, 1f),
+                                    if (i in 0..3 && rect.width > 0f && rect.height > 0f) {
+                                        val points = (page.quad ?: defaultQuad()).toMutableList()
+                                        val p = points[i]
+                                        points[i] = Offset(
+                                            (p.x + dragAmount.x / rect.width).coerceIn(0f, 1f),
+                                            (p.y + dragAmount.y / rect.height).coerceIn(0f, 1f),
                                         )
-                                        quad = points
+                                        page.quad = points
                                     }
                                 },
                             )
                         },
                 ) {
                     val rect = fitRect(size, aspect)
-                    drawImage(
-                        image = imageBitmap,
-                        dstOffset = IntOffset(rect.left.roundToInt(), rect.top.roundToInt()),
-                        dstSize = IntSize(rect.width.roundToInt(), rect.height.roundToInt()),
-                    )
+                    viewBitmap?.let { bmp ->
+                        drawImage(
+                            image = bmp.asImageBitmap(),
+                            dstOffset = IntOffset(rect.left.roundToInt(), rect.top.roundToInt()),
+                            dstSize = IntSize(rect.width.roundToInt(), rect.height.roundToInt()),
+                        )
+                    }
 
-                    val points = quad.map {
+                    val pts = (page.quad ?: defaultQuad()).map {
                         Offset(rect.left + it.x * rect.width, rect.top + it.y * rect.height)
                     }
-                    if (points.size == 4) {
-                        val path = Path().apply {
-                            moveTo(points[0].x, points[0].y)
-                            lineTo(points[1].x, points[1].y)
-                            lineTo(points[2].x, points[2].y)
-                            lineTo(points[3].x, points[3].y)
+                    if (pts.size == 4) {
+                        // sombreado fuera del recorte (evenodd, como en la web)
+                        val shade = Path().apply {
+                            fillType = PathFillType.EvenOdd
+                            addRect(Rect(0f, 0f, size.width, size.height))
+                            moveTo(pts[0].x, pts[0].y)
+                            lineTo(pts[1].x, pts[1].y)
+                            lineTo(pts[2].x, pts[2].y)
+                            lineTo(pts[3].x, pts[3].y)
                             close()
                         }
+                        drawPath(shade, ShadeColor)
+
+                        // borde del cuadrilátero
                         drawPath(
-                            path = path,
-                            color = Color(0xFF5AD9CB),
-                            style = Stroke(width = 2.dp.toPx()),
+                            quadPath(pts),
+                            OutlineBlue,
+                            style = Stroke(width = 2.5.dp.toPx()),
                         )
-                        points.forEach { point ->
-                            drawCircle(color = Color.White, radius = 11.dp.toPx(), center = point)
-                            drawCircle(color = Color(0xFF0F766E), radius = 7.dp.toPx(), center = point)
+
+                        // soportes en L por esquina (guía visual del agarre)
+                        val lLength = 26.dp.toPx()
+                        val lOffset = 5.dp.toPx()
+                        pts.forEachIndexed { i, pt ->
+                            listOf(pts[(i + 3) % 4], pts[(i + 1) % 4]).forEach { neighbor ->
+                                val dx = neighbor.x - pt.x
+                                val dy = neighbor.y - pt.y
+                                val len = hypot(dx, dy)
+                                if (len > 1f) {
+                                    val ux = dx / len
+                                    val uy = dy / len
+                                    drawLine(
+                                        OutlineBlue,
+                                        Offset(pt.x + ux * lOffset, pt.y + uy * lOffset),
+                                        Offset(pt.x + ux * (lOffset + lLength), pt.y + uy * (lOffset + lLength)),
+                                        strokeWidth = 2.5.dp.toPx(),
+                                    )
+                                }
+                            }
+                        }
+
+                        // mangos: círculo grande, anillo blanco y contorno oscuro
+                        pts.forEach { pt ->
+                            val r = 12.dp.toPx()
+                            drawCircle(HandleFill, radius = r, center = pt)
+                            drawCircle(
+                                Color.White,
+                                radius = r,
+                                center = pt,
+                                style = Stroke(width = 3.dp.toPx()),
+                            )
+                            drawCircle(
+                                Color.Black.copy(alpha = 0.55f),
+                                radius = r,
+                                center = pt,
+                                style = Stroke(1.5f),
+                            )
                         }
                     }
                 }
 
                 if (busy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier
-                            .align(androidx.compose.ui.Alignment.Center)
-                            .padding(24.dp),
-                        color = Color.White,
-                    )
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Color.White)
+                            Text(
+                                if (saving) "Guardando documento…" else "Procesando…",
+                                color = Color.White,
+                                modifier = Modifier.padding(8.dp),
+                            )
+                        }
+                    }
                 }
             }
 
+            // filtros
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 DocumentFilter.entries.forEach { option ->
                     FilterChip(
-                        selected = filter == option,
-                        onClick = { filter = option },
-                        label = { Text(option.label()) },
+                        selected = page.filter == option,
+                        onClick = { page.filter = option },
+                        label = { Text(option.uiLabel()) },
+                        enabled = !saving,
                     )
                 }
             }
 
+            // rotación + redetección
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                OutlinedButton(
+                    onClick = { scope.launch { rotatePage(-1) } },
+                    enabled = !busy,
+                ) { Text("⟲") }
+                OutlinedButton(
+                    onClick = { scope.launch { rotatePage(1) } },
+                    enabled = !busy,
+                ) { Text("⟳") }
                 OutlinedButton(
                     onClick = {
                         scope.launch {
-                            busy = true
+                            busyDetect = true
                             val detected = withContext(Dispatchers.Default) {
-                                DocumentDetector.detect(currentBitmap)
+                                viewBitmap?.let { DocumentDetector.detect(it) }
                             }
-                            busy = false
-                            if (detected != null) quad = normalize(detected.pts, currentBitmap)
+                            busyDetect = false
+                            val bmp = viewBitmap
+                            if (detected != null && bmp != null) {
+                                page.quad = ScanSession.normalizeQuad(detected.pts, bmp)
+                            }
                         }
                     },
                     modifier = Modifier.weight(1f),
                     enabled = !busy,
-                ) {
-                    Text("Redetectar")
-                }
+                ) { Text("✨ Redetectar") }
+            }
 
-                Button(
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            val result = withContext(Dispatchers.Default) {
-                                val source = currentBitmap
-                                val pixelQuad = currentQuad.map {
-                                    Pt(it.x.toDouble() * source.width, it.y.toDouble() * source.height)
-                                }
-                                val (width, height) =
-                                    PerspectiveWarper.targetSize(pixelQuad, source.width, source.height)
-                                val warped = PerspectiveWarper.warp(source, pixelQuad, width, height)
-                                ImageFilters.apply(warped, filter)
-                            }
-                            busy = false
-                            onDone(result)
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    enabled = !busy,
+            // paginación del documento (como ed-prev / ed-pos / ed-next en la web)
+            if (pageCount > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(if (busy) "Procesando..." else "Aplicar")
+                    OutlinedButton(
+                        onClick = { onIndexChange(index - 1) },
+                        enabled = index > 0 && !busy,
+                    ) { Text("◀") }
+                    Text(
+                        "${index + 1} / $pageCount",
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                    )
+                    OutlinedButton(
+                        onClick = { onIndexChange(index + 1) },
+                        enabled = index < pageCount - 1 && !busy,
+                    ) { Text("▶") }
                 }
+            }
+
+            // vista previa en vivo del resultado final (recorte + filtro)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(150.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center,
+            ) {
+                preview?.let { p ->
+                    Image(
+                        bitmap = p.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                }
+                if (previewBusy && preview == null) {
+                    CircularProgressIndicator(Modifier.size(22.dp), color = Color.White)
+                }
+            }
+
+            // guardar la página actual y el documento entero (auto-detección en las sin recorte)
+            Button(
+                onClick = {
+                    scope.launch {
+                        saving = true
+                        val outputs = withContext(Dispatchers.Default) {
+                            pages.mapNotNull { sourcePage ->
+                                val source = ScanSession.decode(sourcePage.data, SAVE_MAX_SIDE)
+                                    ?: return@mapNotNull null
+                                if (sourcePage.quad == null && sourcePage !== page) {
+                                    val coarse = ScanSession.decode(sourcePage.data, VIEW_MAX_SIDE)
+                                    detectedQuad(coarse)?.let {
+                                        sourcePage.quad = ScanSession.normalizeQuad(it.pts, source)
+                                    }
+                                }
+                                val pixelQuad = sourcePage.quad
+                                    ?.takeIf { it.size == 4 }
+                                    ?.let { ScanSession.toPixelQuad(it, source.width, source.height) }
+                                val (tw, th) = PerspectiveWarper.targetSize(
+                                    pixelQuad, source.width, source.height,
+                                )
+                                val warped = PerspectiveWarper.warp(source, pixelQuad, tw, th)
+                                ImageFilters.apply(warped, sourcePage.filter)
+                            }
+                        }
+                        saving = false
+                        onDone(outputs)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 12.dp),
+                enabled = !busy,
+            ) {
+                Text(
+                    if (pageCount > 1) "✅ Aplicar y guardar ($pageCount páginas)"
+                    else "✅ Aplicar y guardar",
+                )
             }
         }
     }
 }
 
-private fun normalize(points: List<Pt>, bitmap: Bitmap): List<Offset> = points.map {
-    Offset(
-        (it.x / bitmap.width).toFloat().coerceIn(0f, 1f),
-        (it.y / bitmap.height).toFloat().coerceIn(0f, 1f),
-    )
+private suspend fun detectedQuad(bitmap: Bitmap?) =
+    if (bitmap == null) null else DocumentDetector.detect(bitmap)
+
+private fun quadPath(pts: List<Offset>): Path = Path().apply {
+    moveTo(pts[0].x, pts[0].y)
+    lineTo(pts[1].x, pts[1].y)
+    lineTo(pts[2].x, pts[2].y)
+    lineTo(pts[3].x, pts[3].y)
+    close()
 }
 
 private fun defaultQuad(): List<Offset> = listOf(
@@ -256,7 +455,7 @@ private fun defaultQuad(): List<Offset> = listOf(
     Offset(0.06f, 0.94f),
 )
 
-private fun DocumentFilter.label(): String = when (this) {
+private fun DocumentFilter.uiLabel(): String = when (this) {
     DocumentFilter.ORIGINAL -> "Original"
     DocumentFilter.GRAY -> "Gris"
     DocumentFilter.BW -> "B/N"

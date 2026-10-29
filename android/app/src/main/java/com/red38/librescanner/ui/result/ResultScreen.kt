@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -28,17 +29,30 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.red38.librescanner.util.Sharing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ResultScreen(bitmap: Bitmap, onNewScan: () -> Unit) {
+fun ResultScreen(
+    pages: List<Bitmap>,
+    index: Int,
+    onIndexChange: (Int) -> Unit,
+    onNewScan: () -> Unit,
+    onNewDoc: () -> Unit,
+) {
     val context = LocalContext.current
+    //bitmap actual (la sesión siempre deja al menos uno al llegar aquí)
+    val bitmap = pages[index.coerceIn(0, pages.size - 1)]
     val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Resultado") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text(if (pages.size > 1) "Documento · ${index + 1}/${pages.size}" else "Resultado") },
+            )
+        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -62,7 +76,31 @@ fun ResultScreen(bitmap: Bitmap, onNewScan: () -> Unit) {
                 )
             }
 
-            Spacer(Modifier.height(16.dp))
+            if (pages.size > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(
+                        onClick = { onIndexChange(index - 1) },
+                        enabled = index > 0,
+                    ) { Text("◀") }
+                    Text(
+                        "${index + 1} / ${pages.size}",
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.Center,
+                    )
+                    OutlinedButton(
+                        onClick = { onIndexChange(index + 1) },
+                        enabled = index < pages.size - 1,
+                    ) { Text("▶") }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -80,6 +118,15 @@ fun ResultScreen(bitmap: Bitmap, onNewScan: () -> Unit) {
                 ) {
                     Text("Compartir")
                 }
+            }
+
+            OutlinedButton(
+                onClick = onNewDoc,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            ) {
+                Text("🧹 Documento nuevo (descarta la sesión)")
             }
         }
     }
