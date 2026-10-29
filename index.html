@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DocScan — escáner de documentos</title>
+    <script src="/opencv.js" async></script>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>📄 DocScan</h1>
+      <nav>
+        <button id="tab-scan" class="tab active">📷 Escanear</button>
+        <button id="tab-editor" class="tab">✂️ Editor</button>
+        <button id="tab-ocr" class="tab">🔤 OCR</button>
+        <button id="tab-docs" class="tab">📚 Documentos</button>
+      </nav>
+    </header>
+
+    <main>
+      <!-- ============ ESCANEAR ============ -->
+      <section id="view-scan">
+        <div class="row">
+          <select id="doc-select"></select>
+          <button id="new-doc" title="Nuevo documento">＋ Nuevo doc</button>
+          <button id="import-file" title="Importar imagen de galería">🖼️ Importar</button>
+          <input id="file-input" type="file" accept="image/*" multiple hidden />
+        </div>
+        <video id="camera" autoplay playsinline muted></video>
+        <div class="row">
+          <select id="camera-select"></select>
+          <button id="capture" class="primary" disabled>📸 Capturar página</button>
+        </div>
+      </section>
+
+      <!-- ============ EDITOR ============ -->
+      <section id="view-editor" hidden>
+        <div class="row">
+          <button id="ed-prev">◀</button>
+          <span id="ed-pos">– / –</span>
+          <button id="ed-next">▶</button>
+          <span class="spacer"></span>
+          <button id="ed-rot-l" title="Rotar 90° a la izquierda">⟲</button>
+          <button id="ed-rot-r" title="Rotar 90° a la derecha">⟳</button>
+          <button id="ed-auto">✨ Detección automática</button>
+          <button id="ed-page-del" title="Eliminar página">🗑️</button>
+        </div>
+        <canvas id="ed-canvas"></canvas>
+        <p class="hint">Arrastra las 4 esquinas para ajustar el recorte; abajo ves el resultado aplicado.</p>
+        <canvas id="ed-preview"></canvas>
+        <div class="row">
+          <label>Filtro:
+            <select id="ed-filter">
+              <option value="original">Original</option>
+              <option value="magic">Magic Color (mejora)</option>
+              <option value="gray">Escala de grises</option>
+              <option value="bw">Blanco y negro</option>
+              <option value="bw2">B/N suave</option>
+            </select>
+          </label>
+          <button id="ed-done" class="primary">✅ Aplicar y guardar</button>
+        </div>
+        <p class="hint">Arrastra las 4 esquinas para ajustar el recorte de la página.</p>
+      </section>
+
+      <!-- ============ OCR ============ -->
+      <section id="view-ocr" hidden>
+        <div class="row">
+          <span id="ocr-page-name">–</span>
+          <select id="ocr-lang">
+            <option value="spa+eng">ES + EN</option>
+            <option value="spa">Español</option>
+            <option value="eng">Inglés</option>
+            <option value="por">Portugués</option>
+            <option value="fra">Francés</option>
+            <option value="deu">Alemán</option>
+          </select>
+          <button id="ocr-run" class="primary">▶ Ejecutar OCR</button>
+        </div>
+        <div id="ocr-status"></div>
+        <textarea id="ocr-output" placeholder="El texto reconocido aparecerá aquí..." readonly></textarea>
+        <div class="row">
+          <button id="ocr-copy">📋 Copiar</button>
+          <button id="ocr-txt">💾 Guardar .txt</button>
+        </div>
+      </section>
+
+      <!-- ============ DOCUMENTOS ============ -->
+      <section id="view-docs" hidden>
+        <div id="doc-list" class="cards"></div>
+        <div class="row">
+          <button id="export-pdf" class="primary" disabled>📕 Exportar PDF</button>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="progress"><div class="bar-wrap"><div class="bar" id="progress-bar"></div></div><div id="progress-text"></div></dialog>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
