@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.red38.librescanner.data.PageItem
 import com.red38.librescanner.data.ScanSession
 import com.red38.librescanner.ui.capture.CaptureScreen
+import com.red38.librescanner.ui.home.HomeScreen
 import com.red38.librescanner.ui.editor.EditorScreen
 import com.red38.librescanner.ui.result.ResultScreen
 import com.red38.librescanner.ui.theme.LibreScannerTheme
@@ -52,6 +53,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private sealed interface Screen {
+    data object Home : Screen
     data object Capture : Screen
     data object Edit : Screen
     data object Result : Screen
@@ -61,34 +63,50 @@ private sealed interface Screen {
 private fun LibreScannerApp() {
     // sesión: las páginas originales del documento en curso
     val pages = remember { mutableStateListOf<PageItem>() }
-    var screen by remember { mutableStateOf<Screen>(Screen.Capture) }
+    var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var editingIndex by remember { mutableIntStateOf(0) }
     var outputs by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
     var showingIndex by remember { mutableIntStateOf(0) }
     var detecting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    BackHandler(enabled = screen !is Screen.Capture) {
-        screen = Screen.Capture
+    // flujo común para cámara y galería: detecta bordes, añade página y abre el editor
+    val handleImage: (Bitmap) -> Unit = { bitmap ->
+        detecting = true
+        scope.launch {
+            val detected = withContext(Dispatchers.Default) { DocumentDetector.detect(bitmap) }
+            // la página se guarda como JPEG comprimido: varias páginas no tumban la memoria
+            pages.add(
+                PageItem(
+                    ScanSession.encode(bitmap),
+                    detected?.pts?.let { ScanSession.normalizeQuad(it, bitmap) },
+                ),
+            )
+            detecting = false
+            editingIndex = pages.size - 1
+            screen = Screen.Edit
+        }
+    }
+
+    BackHandler(enabled = screen !is Screen.Home) {
+        screen = Screen.Home
     }
 
     when (screen) {
-        Screen.Capture -> CaptureScreen { bitmap ->
-            detecting = true
-            scope.launch {
-                val detected = withContext(Dispatchers.Default) { DocumentDetector.detect(bitmap) }
-                // la página se guarda como JPEG comprimido: varias páginas no tumban la memoria
-                pages.add(
-                    PageItem(
-                        ScanSession.encode(bitmap),
-                        detected?.pts?.let { ScanSession.normalizeQuad(it, bitmap) },
-                    ),
-                )
-                detecting = false
-                editingIndex = pages.size - 1
-                screen = Screen.Edit
-            }
-        }
+        Screen.Home -> HomeScreen(
+            pageCount = pages.size,
+            onNewScan = { screen = Screen.Capture },
+            onImage = handleImage,
+            onContinue = {
+                if (pages.isNotEmpty()) {
+                    editingIndex = editingIndex.coerceIn(0, pages.size - 1)
+                    screen = Screen.Edit
+                }
+            },
+            onDiscard = { pages.clear() },
+        )
+
+        Screen.Capture -> CaptureScreen(onImage = handleImage)
 
         Screen.Edit -> {
             val idx = editingIndex.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
@@ -107,7 +125,7 @@ private fun LibreScannerApp() {
                             editingIndex = idx.coerceIn(0, pages.size - 1)
                         }
                     },
-                    onCancel = { screen = Screen.Capture },
+                    onCancel = { screen = Screen.Home },
                     onDone = {
                         outputs = it
                         showingIndex = 0
@@ -122,7 +140,7 @@ private fun LibreScannerApp() {
                 pages = outputs,
                 index = showingIndex.coerceIn(0, outputs.size - 1),
                 onIndexChange = { showingIndex = it },
-                onNewScan = { screen = Screen.Capture },
+                onNewScan = { screen = Screen.Home },
                 onNewDoc = {
                     pages.clear()
                     screen = Screen.Capture
