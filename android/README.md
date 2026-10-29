@@ -104,19 +104,23 @@ Implementado:
 - Captura con CameraX y orientación vía EXIF
 - Importación desde galería con el Photo Picker (sin permisos de almacenamiento)
 - Detección automática de bordes con OpenCV
-- Editor con las 4 esquinas arrastrables sobre la imagen
+- Editor con las 4 esquinas arrastrables, rotación y re-detección
 - Corrección de perspectiva a resolución objetivo (máx. 1600 px)
 - Filtros: original, gris, B/N, B/N suave, color (CLAHE en Lab)
-- Compartir el resultado
+- Multi-página con paginación, borrado con confirmación y vista previa en vivo
+- Persistencia local por documento (`filesDir/documents/<id>/`, sin Room ni servicios)
+- "Mis documentos" con miniaturas, fecha y borrado
+- Exportación a PDF A4 multipágina con JPEG embebido (`/DCTDecode`), ~200-400 KB por página
+- Guardado en Descargas (PDF) y en Pictures/Libre Scanner (imagen) vía MediaStore
+- Compartir todas las páginas como imágenes o el PDF
 
 Pendiente (siguiente iteración):
 
-- Rotación 90/180/270 en el editor
-- Multi-página y persistencia (Room en vez de IndexedDB)
-- Exportación a PDF multipágina (`PdfDocument` o PdfBox-Android)
 - OCR con ML Kit Text Recognition v2 (on-device)
-- Guardado en galería vía MediaStore
+- Renombrar documentos y reordenar páginas
 - Re-detección en vivo mientras se mueve la cámara
+- Strings en `strings.xml` y traducciones
+- Pruebas unitarias del detector y del almacén
 
 ## Publicar en Play Store
 

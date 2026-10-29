@@ -219,6 +219,7 @@ private fun LibreScannerApp() {
         Screen.Result -> if (outputs.isNotEmpty()) {
             ResultScreen(
                 pages = outputs,
+                docName = openDoc?.name,
                 index = showingIndex.coerceIn(0, outputs.size - 1),
                 onIndexChange = { showingIndex = it },
                 onNewScan = { screen = Screen.Capture },

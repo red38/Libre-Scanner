@@ -17,10 +17,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -55,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import com.red38.librescanner.data.PageItem
 import com.red38.librescanner.data.ScanSession
 import com.red38.librescanner.ui.fitRect
+import com.red38.librescanner.ui.icons.AppIcons
 import com.red38.librescanner.vision.DocumentDetector
 import com.red38.librescanner.vision.DocumentFilter
 import com.red38.librescanner.vision.ImageFilters
@@ -123,6 +130,7 @@ fun EditorScreen(
     var busyDetect by remember { mutableStateOf(false) }
     var busyRotate by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val busy = busyDetect || busyRotate || saving
     var draggingCorner by remember { mutableIntStateOf(-1) }
     val scope = rememberCoroutineScope()
@@ -147,10 +155,18 @@ fun EditorScreen(
                     val base = docName ?: "Editor"
                     Text(if (pageCount > 1) "$base · ${index + 1}/$pageCount" else base)
                 },
-                navigationIcon = { TextButton(onClick = onCancel) { Text("Volver") } },
+                navigationIcon = {
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
+                    }
+                },
                 actions = {
-                    IconButton(onClick = onAddPage, enabled = !busy) { Text("＋") }
-                    IconButton(onClick = onDeletePage, enabled = !busy) { Text("🗑") }
+                    IconButton(onClick = onAddPage, enabled = !busy) {
+                        Icon(Icons.Default.Add, contentDescription = "Añadir página")
+                    }
+                    IconButton(onClick = { confirmDelete = true }, enabled = !busy) {
+                        Icon(Icons.Default.Delete, contentDescription = "Eliminar página")
+                    }
                 },
             )
         },
@@ -327,11 +343,15 @@ fun EditorScreen(
                 OutlinedButton(
                     onClick = { scope.launch { rotatePage(-1) } },
                     enabled = !busy,
-                ) { Text("⟲") }
+                ) {
+                    Icon(AppIcons.RotateLeft, contentDescription = "Rotar a la izquierda")
+                }
                 OutlinedButton(
                     onClick = { scope.launch { rotatePage(1) } },
                     enabled = !busy,
-                ) { Text("⟳") }
+                ) {
+                    Icon(AppIcons.RotateRight, contentDescription = "Rotar a la derecha")
+                }
                 OutlinedButton(
                     onClick = {
                         scope.launch {
@@ -348,7 +368,14 @@ fun EditorScreen(
                     },
                     modifier = Modifier.weight(1f),
                     enabled = !busy,
-                ) { Text("✨ Redetectar") }
+                ) {
+                    Icon(
+                        AppIcons.AutoFix,
+                        contentDescription = null,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                    Text("Redetectar")
+                }
             }
 
             // paginación del documento (como ed-prev / ed-pos / ed-next en la web)
@@ -440,6 +467,30 @@ fun EditorScreen(
                 )
             }
         }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Eliminar página") },
+            text = {
+                Text(
+                    if (pageCount > 1) "¿Eliminar la página ${index + 1} de $pageCount? No se puede deshacer."
+                    else "¿Eliminar esta página? El documento quedará vacío y se borrará. No se puede deshacer.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDelete = false
+                        onDeletePage()
+                    },
+                ) { Text("Eliminar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("Cancelar") }
+            },
+        )
     }
 }
 

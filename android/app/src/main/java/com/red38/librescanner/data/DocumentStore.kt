@@ -38,7 +38,7 @@ object DocumentStore {
     /** crea un documento nuevo con las páginas actuales y devuelve su resumen */
     fun create(context: Context, pages: List<PageItem>, name: String? = null): DocSummary? {
         val id = UUID.randomUUID().toString()
-        val finalName = name ?: "Documento ${list(context).size + 1}"
+        val finalName = name ?: nextName(context)
         val createdAt = writePages(context, id, pages, finalName) ?: return null
         return DocSummary(id, finalName, pages.size, createdAt, thumbPath(context, id))
     }
@@ -61,6 +61,17 @@ object DocumentStore {
             }
             ?.sortedByDescending { it.createdAt }
             ?: emptyList()
+
+    /**
+     * "Documento N" con N = mayor número existente + 1. Usar list().size + 1
+     * repetía nombres después de borrar documentos.
+     */
+    private fun nextName(context: Context): String {
+        val used = list(context).mapNotNull { doc ->
+            Regex("^Documento (\\d+)$").find(doc.name)?.groupValues?.get(1)?.toIntOrNull()
+        }
+        return "Documento ${(used.maxOrNull() ?: 0) + 1}"
+    }
 
     fun load(context: Context, id: String): LoadedDoc? {
         val metaFile = File(dir(context, id), "meta.json")
